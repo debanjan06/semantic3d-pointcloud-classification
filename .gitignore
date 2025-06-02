@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data files
+data/raw/
+data/processed/
+*.las
+*.ply
+*.txt
+*.7z
+
+# Models
+models/checkpoints/
+*.pth
+*.pkl
+
+# Environment
+venv/
+env/
+.conda/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Wandb
+wandb/
