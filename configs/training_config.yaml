@@ -1,0 +1,19 @@
+model:
+  num_classes: 8
+  input_channels: 7
+
+data:
+  train_path: "data/processed/train"
+  val_path: "data/processed/val"
+  dataset_params:
+    num_points: 4096
+    block_size: 1.0
+    stride: 0.5
+    use_color: true
+    use_intensity: true
+
+training:
+  batch_size: 16
+  epochs: 200
+  learning_rate: 0.001
+  weight_decay: 0.0001
