@@ -1,0 +1,10 @@
+echo torch==2.0.1+cpu > demo/requirements.txt
+echo torchvision==0.15.2+cpu >> demo/requirements.txt
+echo --find-links https://download.pytorch.org/whl/torch_stable.html >> demo/requirements.txt
+echo. >> demo/requirements.txt
+echo streamlit^>=1.28.0 >> demo/requirements.txt
+echo plotly^>=5.11.0 >> demo/requirements.txt
+echo pandas^>=1.3.0 >> demo/requirements.txt
+echo numpy^>=1.21.0,^<1.25.0 >> demo/requirements.txt
+echo scikit-learn^>=1.0.0 >> demo/requirements.txt
+echo open3d^>=0.13.0 >> demo/requirements.txt

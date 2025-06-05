@@ -34,3 +34,6 @@ Thumbs.db
 
 # Wandb
 wandb/
+"# Allow demo deployment files" 
+"!demo/requirements.txt" 
+"!demo/packages.txt" 

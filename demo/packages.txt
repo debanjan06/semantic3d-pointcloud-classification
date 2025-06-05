@@ -1,0 +1,6 @@
+echo libgl1-mesa-glx > demo/packages.txt
+echo libglib2.0-0 >> demo/packages.txt
+echo libsm6 >> demo/packages.txt
+echo libxext6 >> demo/packages.txt
+echo libxrender-dev >> demo/packages.txt
+echo libgomp1 >> demo/packages.txt
