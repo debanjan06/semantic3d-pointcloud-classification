@@ -1,21 +1,53 @@
-# Save as demo/app.py (FIXED VERSION)
-
 import streamlit as st
-import torch
 import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
 import pandas as pd
-import open3d as o3d
 import tempfile
 import os
 import sys
 from io import StringIO
 
+# Handle imports gracefully
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    st.error("PyTorch not available. Please install with: pip install torch torchvision")
+    TORCH_AVAILABLE = False
+
+try:
+    import plotly.graph_objects as go
+    import plotly.express as px
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    st.error("Plotly not available. Please install with: pip install plotly")
+    PLOTLY_AVAILABLE = False
+
+try:
+    import open3d as o3d
+    OPEN3D_AVAILABLE = True
+except ImportError:
+    st.warning("Open3D not available. File upload will be limited.")
+    OPEN3D_AVAILABLE = False
+
+try:
+    from sklearn.metrics import confusion_matrix
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
+
 # Add src to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from models.pointnet2 import PointNet2SemSeg
+# Only import model if torch is available
+if TORCH_AVAILABLE:
+    try:
+        from models.pointnet2 import PointNet2SemSeg
+        MODEL_AVAILABLE = True
+    except ImportError:
+        st.error("PointNet++ model not found. Please check src/models/pointnet2.py")
+        MODEL_AVAILABLE = False
+else:
+    MODEL_AVAILABLE = False
 
 # Page config
 st.set_page_config(
@@ -28,9 +60,16 @@ st.set_page_config(
 @st.cache_resource
 def load_model():
     """Load the trained PointNet++ model"""
-    model = PointNet2SemSeg(num_classes=8, input_channels=6)
-    model.eval()
-    return model
+    if not MODEL_AVAILABLE:
+        return None
+    
+    try:
+        model = PointNet2SemSeg(num_classes=8, input_channels=6)
+        model.eval()
+        return model
+    except Exception as e:
+        st.error(f"Error loading model: {str(e)}")
+        return None
 
 def generate_sample_data(scene_type="urban"):
     """Generate sample point cloud data for demo"""
@@ -171,6 +210,10 @@ def preprocess_points(points, max_points=4096):
 
 def create_3d_plot(points, labels=None, title="Point Cloud"):
     """Create interactive 3D plot with plotly"""
+    if not PLOTLY_AVAILABLE:
+        st.error("Plotly required for 3D visualization")
+        return None
+        
     if labels is not None:
         class_names = [
             'man-made terrain', 'natural terrain', 'high vegetation',
@@ -222,10 +265,40 @@ def create_3d_plot(points, labels=None, title="Point Cloud"):
     
     return fig
 
+def create_simple_plot(points, labels=None, title="Point Cloud"):
+    """Create simple 2D scatter plot as fallback"""
+    df = pd.DataFrame({
+        'X': points[:, 0],
+        'Y': points[:, 1],
+        'Z': points[:, 2]
+    })
+    
+    if labels is not None:
+        class_names = [
+            'man-made terrain', 'natural terrain', 'high vegetation',
+            'low vegetation', 'buildings', 'hard scape', 
+            'scanning artifacts', 'cars'
+        ]
+        df['Class'] = [class_names[label] for label in labels]
+        
+        fig = px.scatter(df, x='X', y='Y', color='Class', 
+                        size=[1]*len(df), title=title,
+                        hover_data=['Z'])
+    else:
+        fig = px.scatter(df, x='X', y='Y', title=title,
+                        hover_data=['Z'])
+    
+    return fig
+
 def main():
     # Header
     st.title("🌍 Semantic3D Point Cloud Classification")
     st.markdown("**Real-time 3D point cloud semantic segmentation using PointNet++**")
+    
+    # Check dependencies
+    if not TORCH_AVAILABLE or not MODEL_AVAILABLE:
+        st.error("⚠️ Some dependencies are missing. The demo will run in limited mode.")
+        st.info("For full functionality, please ensure PyTorch and the PointNet++ model are available.")
     
     # Sidebar
     st.sidebar.header("🛠️ Model Information")
@@ -247,52 +320,68 @@ def main():
     """)
     
     # Load model
-    with st.spinner("Loading PointNet++ model..."):
-        model = load_model()
-    st.sidebar.success("✅ Model loaded successfully!")
+    model = None
+    if MODEL_AVAILABLE:
+        with st.spinner("Loading PointNet++ model..."):
+            model = load_model()
+        if model is not None:
+            st.sidebar.success("✅ Model loaded successfully!")
+        else:
+            st.sidebar.error("❌ Model loading failed")
+    else:
+        st.sidebar.warning("⚠️ Model not available")
     
     # Main content
     tab1, tab2, tab3 = st.tabs(["📁 Upload File", "🎯 Try Samples", "📊 Model Info"])
     
     with tab1:
         st.subheader("Upload Your Point Cloud")
+        
+        if not OPEN3D_AVAILABLE:
+            st.warning("Open3D not available. File upload functionality is limited.")
+        
         uploaded_file = st.file_uploader(
-            "Choose a point cloud file (.ply, .txt, .las)", 
-            type=['ply', 'txt', 'las']
+            "Choose a point cloud file (.txt format recommended)", 
+            type=['txt']
         )
         
         if uploaded_file is not None:
             st.success("File uploaded successfully!")
             
-            # Try to load the file
             try:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp_file:
-                    tmp_file.write(uploaded_file.getvalue())
-                    tmp_file_path = tmp_file.name
+                # Load text file
+                content = uploaded_file.getvalue().decode('utf-8')
+                lines = content.strip().split('\n')
                 
-                # Load point cloud based on file type
-                if uploaded_file.name.endswith('.ply'):
-                    pcd = o3d.io.read_point_cloud(tmp_file_path)
-                    points = np.asarray(pcd.points)
-                    if pcd.has_colors():
-                        colors = np.asarray(pcd.colors)
-                        points_with_colors = np.hstack([points, colors])
-                    else:
-                        colors = np.random.uniform(0, 1, (len(points), 3))
-                        points_with_colors = np.hstack([points, colors])
-                elif uploaded_file.name.endswith('.txt'):
-                    points_with_colors = np.loadtxt(tmp_file_path)
+                # Parse points
+                points_data = []
+                for line in lines:
+                    try:
+                        coords = [float(x) for x in line.split()]
+                        if len(coords) >= 3:
+                            points_data.append(coords[:6])  # Take first 6 columns
+                    except:
+                        continue
+                
+                if points_data:
+                    points_with_colors = np.array(points_data)
+                    
+                    # Ensure 6 columns
                     if points_with_colors.shape[1] < 6:
-                        st.error("Text file should have at least 6 columns (X, Y, Z, R, G, B)")
-                        return
-                
-                os.unlink(tmp_file_path)
-                
-                st.info(f"Loaded {len(points_with_colors):,} points")
-                
-                # Process and classify
-                if st.button("🚀 Classify Point Cloud", type="primary"):
-                    classify_point_cloud(model, points_with_colors)
+                        # Add random colors if missing
+                        n_missing = 6 - points_with_colors.shape[1]
+                        random_colors = np.random.uniform(0, 1, (len(points_with_colors), n_missing))
+                        points_with_colors = np.hstack([points_with_colors, random_colors])
+                    
+                    st.info(f"Loaded {len(points_with_colors):,} points")
+                    
+                    if st.button("🚀 Classify Point Cloud", type="primary"):
+                        if model is not None:
+                            classify_point_cloud(model, points_with_colors)
+                        else:
+                            st.error("Model not available for classification")
+                else:
+                    st.error("Could not parse point cloud data")
                     
             except Exception as e:
                 st.error(f"Error loading file: {str(e)}")
@@ -305,13 +394,20 @@ def main():
             if st.button("🏙️ Urban Scene", type="primary"):
                 points, true_labels = generate_sample_data("urban")
                 st.info(f"Generated urban scene with {len(points):,} points")
-                classify_point_cloud(model, points, true_labels)
+                if model is not None:
+                    classify_point_cloud(model, points, true_labels)
+                else:
+                    # Show visualization without classification
+                    show_sample_only(points, true_labels, "Urban Scene")
         
         with col2:
             if st.button("🌲 Forest Scene", type="primary"):
                 points, true_labels = generate_sample_data("forest")
                 st.info(f"Generated forest scene with {len(points):,} points")
-                classify_point_cloud(model, points, true_labels)
+                if model is not None:
+                    classify_point_cloud(model, points, true_labels)
+                else:
+                    show_sample_only(points, true_labels, "Forest Scene")
     
     with tab3:
         st.subheader("📈 Model Architecture")
@@ -338,7 +434,6 @@ def main():
             - Memory usage: ~2GB GPU
             """)
         
-        # Model summary
         st.subheader("📋 Layer Details")
         model_info = """
         | Layer | Points | Radius | Samples | Features |
@@ -349,6 +444,55 @@ def main():
         | SA4   | 16     | 0.8    | 32      | 512      |
         """
         st.markdown(model_info)
+        
+        # System status
+        st.subheader("🔧 System Status")
+        status_df = pd.DataFrame({
+            'Component': ['PyTorch', 'Plotly', 'Open3D', 'scikit-learn', 'PointNet++ Model'],
+            'Status': [
+                '✅ Available' if TORCH_AVAILABLE else '❌ Missing',
+                '✅ Available' if PLOTLY_AVAILABLE else '❌ Missing', 
+                '✅ Available' if OPEN3D_AVAILABLE else '❌ Missing',
+                '✅ Available' if SKLEARN_AVAILABLE else '❌ Missing',
+                '✅ Available' if MODEL_AVAILABLE else '❌ Missing'
+            ]
+        })
+        st.dataframe(status_df)
+
+def show_sample_only(points, true_labels, scene_name):
+    """Show sample data without model inference"""
+    st.subheader(f"📊 {scene_name} Visualization")
+    
+    class_names = [
+        'man-made terrain', 'natural terrain', 'high vegetation',
+        'low vegetation', 'buildings', 'hard scape', 
+        'scanning artifacts', 'cars'
+    ]
+    
+    # Show 3D plot if possible, otherwise 2D
+    if PLOTLY_AVAILABLE:
+        fig = create_3d_plot(points[:, :3], true_labels, f"{scene_name} - Ground Truth")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        fig = create_simple_plot(points[:, :3], true_labels, f"{scene_name} - Ground Truth")
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Statistics
+    unique_labels, counts = np.unique(true_labels, return_counts=True)
+    stats_df = pd.DataFrame({
+        'Class': [class_names[i] for i in unique_labels],
+        'Count': counts,
+        'Percentage': (counts / len(true_labels) * 100).round(2)
+    })
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.dataframe(stats_df)
+    with col2:
+        if PLOTLY_AVAILABLE:
+            fig_pie = px.pie(stats_df, values='Count', names='Class', 
+                            title="Ground Truth Distribution")
+            st.plotly_chart(fig_pie, use_container_width=True)
 
 def classify_point_cloud(model, points, true_labels=None):
     """Run classification and show results"""
@@ -366,7 +510,6 @@ def classify_point_cloud(model, points, true_labels=None):
     if processed_points.shape[1] >= 6:
         features = processed_points[:, 3:6]
     else:
-        # Generate dummy RGB if not available
         features = np.random.uniform(0, 1, (len(processed_points), 3))
     
     # Combine normalized coordinates with features
@@ -381,19 +524,13 @@ def classify_point_cloud(model, points, true_labels=None):
             predicted_labels = predictions.squeeze().argmax(dim=1).cpu().numpy()
     
     # Map predictions back to original point cloud for visualization
-    if len(points) != len(predicted_labels):
-        # If we sampled points, use sampled predictions for visualization
-        viz_points = processed_points[:, :3]
-        viz_predictions = predicted_labels
-        # For accuracy calculation, align with true labels if available
-        if true_labels is not None:
-            true_labels_sampled = true_labels[sampling_indices]
-        else:
-            true_labels_sampled = None
+    viz_points = processed_points[:, :3]
+    viz_predictions = predicted_labels
+    
+    if true_labels is not None:
+        true_labels_sampled = true_labels[sampling_indices]
     else:
-        viz_points = points[:, :3]
-        viz_predictions = predicted_labels
-        true_labels_sampled = true_labels
+        true_labels_sampled = None
     
     # Class names
     class_names = [
@@ -407,13 +544,21 @@ def classify_point_cloud(model, points, true_labels=None):
     
     with col1:
         st.subheader("🔍 Original Point Cloud")
-        original_fig = create_3d_plot(viz_points, title="Original Point Cloud")
-        st.plotly_chart(original_fig, use_container_width=True)
+        if PLOTLY_AVAILABLE:
+            original_fig = create_3d_plot(viz_points, title="Original Point Cloud")
+            st.plotly_chart(original_fig, use_container_width=True)
+        else:
+            original_fig = create_simple_plot(viz_points, title="Original Point Cloud")
+            st.plotly_chart(original_fig, use_container_width=True)
     
     with col2:
         st.subheader("🎯 Classification Results")
-        classified_fig = create_3d_plot(viz_points, viz_predictions, "Classified Point Cloud")
-        st.plotly_chart(classified_fig, use_container_width=True)
+        if PLOTLY_AVAILABLE:
+            classified_fig = create_3d_plot(viz_points, viz_predictions, "Classified Point Cloud")
+            st.plotly_chart(classified_fig, use_container_width=True)
+        else:
+            classified_fig = create_simple_plot(viz_points, viz_predictions, "Classified Point Cloud")
+            st.plotly_chart(classified_fig, use_container_width=True)
     
     # Statistics
     st.subheader("📊 Classification Statistics")
@@ -432,36 +577,35 @@ def classify_point_cloud(model, points, true_labels=None):
         st.dataframe(stats_df, use_container_width=True)
     
     with col2:
-        # Pie chart
-        fig_pie = px.pie(stats_df, values='Count', names='Class', 
-                        title="Class Distribution")
-        st.plotly_chart(fig_pie, use_container_width=True)
+        if PLOTLY_AVAILABLE:
+            fig_pie = px.pie(stats_df, values='Count', names='Class', 
+                            title="Class Distribution")
+            st.plotly_chart(fig_pie, use_container_width=True)
     
     # Accuracy if ground truth available
     if true_labels_sampled is not None:
         accuracy = (viz_predictions == true_labels_sampled).mean() * 100
         st.success(f"🎯 **Accuracy**: {accuracy:.1f}% (on sampled {len(viz_predictions)} points)")
         
-        # Simple confusion matrix
-        try:
-            from sklearn.metrics import confusion_matrix
-            cm = confusion_matrix(true_labels_sampled, viz_predictions, labels=range(8))
-            
-            # Create confusion matrix plot
-            fig_cm = px.imshow(cm, 
-                              x=[class_names[i] for i in range(8)],
-                              y=[class_names[i] for i in range(8)],
-                              title="Confusion Matrix",
-                              aspect="auto")
-            fig_cm.update_xaxes(side="bottom")
-            st.plotly_chart(fig_cm, use_container_width=True)
-        except ImportError:
-            st.info("Install scikit-learn to see confusion matrix: pip install scikit-learn")
+        # Confusion matrix if sklearn available
+        if SKLEARN_AVAILABLE and PLOTLY_AVAILABLE:
+            try:
+                cm = confusion_matrix(true_labels_sampled, viz_predictions, labels=range(8))
+                
+                fig_cm = px.imshow(cm, 
+                                  x=[class_names[i] for i in range(8)],
+                                  y=[class_names[i] for i in range(8)],
+                                  title="Confusion Matrix",
+                                  aspect="auto")
+                fig_cm.update_xaxes(side="bottom")
+                st.plotly_chart(fig_cm, use_container_width=True)
+            except Exception as e:
+                st.info("Could not generate confusion matrix")
     
     # Export options
     st.subheader("💾 Export Results")
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     
     with col1:
         # CSV export
@@ -482,7 +626,7 @@ def classify_point_cloud(model, points, true_labels=None):
         )
     
     with col2:
-        # JSON export for web use
+        # JSON export
         import json
         export_json = {
             'points': viz_points.tolist(),
@@ -498,9 +642,6 @@ def classify_point_cloud(model, points, true_labels=None):
             file_name="classified_pointcloud.json",
             mime="application/json"
         )
-    
-    with col3:
-        st.info("💡 **QGIS Integration**: Open CSV in QGIS as delimited text layer with X, Y, Z coordinates for 3D visualization!")
 
 if __name__ == "__main__":
     main()
