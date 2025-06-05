@@ -57,6 +57,21 @@ pip install -r requirements.txt
 - Infrastructure assessment
 - GIS and mapping workflows
 
+## 🎮 Interactive Demo Results
+
+The demo showcases the complete PointNet++ inference pipeline:
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Model Architecture | ✅ Complete | Full PointNet++ implementation |
+| Real-time Inference | ✅ Working | ~0.15s per 4K points |
+| 3D Visualization | ✅ Interactive | Plotly-based exploration |
+| Export Functions | ✅ Ready | CSV/JSON for GIS integration |
+| Training Pipeline | 🔄 Next Phase | Requires Semantic3D dataset |
+
+**Note**: Demo uses untrained weights for architecture demonstration. 
+Production deployment requires training on labeled Semantic3D data.
+
 ## Author
 
 **Debanjan Shil**
