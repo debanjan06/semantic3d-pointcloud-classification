@@ -1,5 +1,3 @@
-# Replace your src/models/pointnet2.py with this complete implementation
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
